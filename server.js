@@ -8,7 +8,7 @@ const crypto = require("crypto");
 
 const app = express();
 
-// ===== TRUST PROXY (BẮT BUỘC CHO RENDER) =====
+// ===== TRUST PROXY (CHO RENDER) =====
 app.set("trust proxy", 1);
 
 // ===== SESSION =====
@@ -17,7 +17,7 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: true,      // Render dùng HTTPS
+        secure: true,
         sameSite: "none"
     }
 }));
@@ -37,7 +37,7 @@ passport.use(new GoogleStrategy({
     return done(null, profile);
 }));
 
-// ===== LƯU USER (tạm thời RAM) =====
+// ===== LƯU USER (RAM - TẠM) =====
 global.users = {};
 
 // ===== ROUTE =====
@@ -63,7 +63,6 @@ app.get("/auth/google/callback",
 
         const token = crypto.randomBytes(16).toString("hex");
 
-        // fix lỗi undefined email
         const name = req.user.displayName || "NoName";
         const email = (req.user.emails && req.user.emails.length > 0)
             ? req.user.emails[0].value
@@ -73,28 +72,30 @@ app.get("/auth/google/callback",
 
         console.log("User login:", global.users[token]);
 
-        // 🔥 redirect kèm token
-        return res.redirect(`/success?token=${token}`);
+        // ===============================
+        // 🔥 AUTO LOGIN VỀ GAME
+        // ===============================
+        return res.redirect(`mygame://login?token=${token}`);
+
+        // ===============================
+        // ⚠️ DÙNG TEST TRÊN WEB (tạm mở nếu cần)
+        // ===============================
+        // return res.redirect(`/success?token=${token}`);
     }
 );
 
-// trang hiển thị token
+// ===== TRANG TEST (OPTIONAL) =====
 app.get("/success", (req, res) => {
     const token = req.query.token || "Không có token";
 
     res.send(`
         <h2>Login thành công ✅</h2>
-        <p>Quay lại game</p>
-
-        <script>
-            navigator.clipboard.writeText("${token}");
-        </script>
-
+        <p>Token (test):</p>
         <h3>${token}</h3>
     `);
 });
 
-// API lấy user
+// ===== API LẤY USER =====
 app.get("/user", (req, res) => {
     const token = req.query.token;
 
@@ -108,7 +109,7 @@ app.get("/user", (req, res) => {
     });
 });
 
-// API check token (game dùng)
+// ===== API CHECK TOKEN =====
 app.get("/verify-token", (req, res) => {
     const token = req.query.token;
 
