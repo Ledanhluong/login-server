@@ -1,78 +1,98 @@
 require("dotenv").config();
+
 const express = require("express");
-const session = require("express-session");
-const passport = require("passport");
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
-const crypto = require("crypto");
+const fs = require("fs");
+const cors = require("cors");
+const nodemailer = require("nodemailer");
 
 const app = express();
+app.use(cors());
+app.use(express.json());
 
-// ===== TRUST PROXY =====
-app.set("trust proxy", 1);
-
-// ===== SESSION =====
-app.use(session({
-    secret: "secret123",
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: true, sameSite: "none" }
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
-
-// ===== PASSPORT =====
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((user, done) => done(null, user));
-
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.CALLBACK_URL
-}, (accessToken, refreshToken, profile, done) => {
-    const user = {
-        id: profile.id,
-        name: profile.displayName || "NoName",
-        email: profile.emails?.[0]?.value || "NoEmail"
-    };
-    return done(null, user);
-}));
-
-const users = {};
-
-// ===== ROUTE =====
-app.get("/", (req, res) => res.send("Server chạy OK 🚀"));
-
-// ===== LOGIN GOOGLE =====
-app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
-
-// ===== CALLBACK =====
-app.get("/auth/google/callback", passport.authenticate("google", { failureRedirect: "/" }), (req, res) => {
-    if (!req.user) return res.redirect("/");
-
-    const token = crypto.randomBytes(32).toString("hex");
-    users[token] = req.user;
-
-    console.log("✅ LOGIN:", req.user.email);
-    console.log("🔑 TOKEN:", token);
-
-    // redirect về app bằng deeplink
-    return res.redirect(`mygame://login?token=${token}`);
-});
-
-// ===== API LẤY USER =====
-app.get("/user", (req, res) => {
-    const token = req.query.token;
-    if (!token || !users[token]) return res.json({ success: false });
-    res.json({ success: true, user: users[token] });
-});
-
-// ===== API VERIFY TOKEN =====
-app.get("/verify-token", (req, res) => {
-    const token = req.query.token;
-    res.json({ valid: !!token && !!users[token] });
-});
-
-// ===== START SERVER =====
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("🚀 Server chạy tại port:", PORT));
+
+function loadUsers() {
+    try {
+        return JSON.parse(fs.readFileSync("users.json"));
+    } catch {
+        return [];
+    }
+}
+
+function saveUsers(users) {
+    fs.writeFileSync("users.json", JSON.stringify(users, null, 2));
+}
+
+let otpStore = {};
+
+const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
+// ===== SEND OTP =====
+app.post("/send-otp", async (req, res) => {
+    const { email } = req.body;
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    otpStore[email] = otp;
+
+    console.log("OTP:", otp);
+
+    try {
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: "OTP GAME",
+            text: "Mã OTP của bạn là: " + otp
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        res.json({ success: false });
+    }
+});
+
+// ===== REGISTER =====
+app.post("/register", (req, res) => {
+    const { email, password, otp } = req.body;
+
+    if (otpStore[email] !== otp) {
+        return res.json({ success: false, message: "OTP sai" });
+    }
+
+    let users = loadUsers();
+
+    if (users.find(u => u.email === email)) {
+        return res.json({ success: false, message: "Email tồn tại" });
+    }
+
+    users.push({ email, password });
+    saveUsers(users);
+
+    delete otpStore[email];
+
+    res.json({ success: true });
+});
+
+// ===== LOGIN =====
+app.post("/login", (req, res) => {
+    const { email, password } = req.body;
+
+    let users = loadUsers();
+
+    let user = users.find(u => u.email === email && u.password === password);
+
+    if (user) {
+        res.json({ success: true });
+    } else {
+        res.json({ success: false });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log("Server chạy cổng " + PORT);
+});
