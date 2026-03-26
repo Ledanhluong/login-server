@@ -12,16 +12,18 @@ const app = express();
 app.use(session({
     secret: "secret123",
     resave: false,
-    saveUninitialized: true
+    saveUninitialized: true,
+    cookie: { secure: false } // Render vẫn OK
 }));
 
+// ===== PASSPORT =====
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ===== PASSPORT =====
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
+// ===== GOOGLE LOGIN =====
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -30,24 +32,19 @@ passport.use(new GoogleStrategy({
     return done(null, profile);
 }));
 
-// ===== LƯU USER =====
-global.users = {};
-
-// ===== ROUTE =====
-
-// test
-app.get("/", (req, res) => {
-    res.send("Server chạy OK 🚀");
-});
-
-// login
+// ===== LOGIN =====
 app.get("/auth/google",
     passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
-// callback
+// ===== LƯU USER =====
+global.users = {};
+
+// ===== CALLBACK =====
 app.get("/auth/google/callback",
-    passport.authenticate("google", { failureRedirect: "/" }),
+    passport.authenticate("google", {
+        failureRedirect: "/"
+    }),
     (req, res) => {
 
         const token = crypto.randomBytes(16).toString("hex");
@@ -57,26 +54,29 @@ app.get("/auth/google/callback",
             email: req.user.emails[0].value
         };
 
-        console.log("User:", global.users[token]);
+        // 🔥 LƯU TOKEN VÀO SESSION
+        req.session.token = token;
 
-        // 🔥 REDIRECT về link có token
-        res.redirect(`/success?token=${token}`);
+        res.send(`
+            <h2>Login thành công ✅</h2>
+            <p>Bạn có thể quay lại game</p>
+        `);
     }
 );
 
-// 👉 trang hiển thị (optional)
-app.get("/success", (req, res) => {
-    const token = req.query.token;
+// ===== API LẤY TOKEN (AUTO) =====
+app.get("/get-token", (req, res) => {
+    if (!req.session.token) {
+        return res.json({ success: false });
+    }
 
-    res.send(`
-        <h2>Login thành công ✅</h2>
-        <p>Bạn có thể quay lại game</p>
-        <p>Token:</p>
-        <h3>${token}</h3>
-    `);
+    res.json({
+        success: true,
+        token: req.session.token
+    });
 });
 
-// 👉 API lấy user
+// ===== API LẤY USER =====
 app.get("/user", (req, res) => {
     const token = req.query.token;
 
@@ -90,8 +90,11 @@ app.get("/user", (req, res) => {
     });
 });
 
+// ===== TEST =====
+app.get("/", (req, res) => {
+    res.send("Server chạy OK 🚀");
+});
+
 // ===== START =====
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log("Server chạy port:", PORT);
-});
+app.listen(PORT, () => console.log("Server chạy tại port " + PORT));
